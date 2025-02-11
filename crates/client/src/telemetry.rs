@@ -17,7 +17,7 @@ use std::io::Write;
 use std::sync::LazyLock;
 use std::time::Instant;
 use std::{env, mem, path::PathBuf, sync::Arc, time::Duration};
-use telemetry_events::{AssistantEvent, AssistantPhase, Event, EventRequestBody, EventWrapper};
+use telemetry_events::{AssistantEventData, AssistantPhase, Event, EventRequestBody, EventWrapper};
 use util::{ResultExt, TryFutureExt};
 use worktree::{UpdatedEntriesSet, WorktreeId};
 
@@ -256,7 +256,7 @@ impl Telemetry {
             async move {
                 while let Some(event) = rx.next().await {
                     let Some(state) = this.upgrade() else { break };
-                    state.report_event(Event::Flexible(event))
+                    state.report_event(event)
                 }
             }
         })
@@ -329,7 +329,7 @@ impl Telemetry {
         drop(state);
     }
 
-    pub fn report_assistant_event(self: &Arc<Self>, event: AssistantEvent) {
+    pub fn report_assistant_event(self: &Arc<Self>, event: AssistantEventData) {
         let event_type = match event.phase {
             AssistantPhase::Response => "Assistant Responded",
             AssistantPhase::Invoked => "Assistant Invoked",
@@ -578,7 +578,7 @@ mod tests {
     use clock::FakeSystemClock;
     use gpui::TestAppContext;
     use http_client::FakeHttpClient;
-    use telemetry_events::FlexibleEvent;
+    use telemetry_events::Event;
 
     #[gpui::test]
     fn test_telemetry_flush_on_max_queue_size(cx: &mut TestAppContext) {
@@ -603,12 +603,12 @@ mod tests {
                 serde_json::Value::String("test_value".to_string()),
             )]);
 
-            let event = FlexibleEvent {
+            let event = Event {
                 event_type: "test".to_string(),
                 event_properties,
             };
 
-            telemetry.report_event(Event::Flexible(event.clone()));
+            telemetry.report_event(event.clone());
             assert_eq!(telemetry.state.lock().events_queue.len(), 1);
             assert!(telemetry.state.lock().flush_events_task.is_some());
             assert_eq!(
@@ -618,7 +618,7 @@ mod tests {
 
             clock.advance(Duration::from_millis(100));
 
-            telemetry.report_event(Event::Flexible(event.clone()));
+            telemetry.report_event(event.clone());
             assert_eq!(telemetry.state.lock().events_queue.len(), 2);
             assert!(telemetry.state.lock().flush_events_task.is_some());
             assert_eq!(
@@ -628,7 +628,7 @@ mod tests {
 
             clock.advance(Duration::from_millis(100));
 
-            telemetry.report_event(Event::Flexible(event.clone()));
+            telemetry.report_event(event.clone());
             assert_eq!(telemetry.state.lock().events_queue.len(), 3);
             assert!(telemetry.state.lock().flush_events_task.is_some());
             assert_eq!(
@@ -639,7 +639,7 @@ mod tests {
             clock.advance(Duration::from_millis(100));
 
             // Adding a 4th event should cause a flush
-            telemetry.report_event(Event::Flexible(event));
+            telemetry.report_event(event);
             assert!(is_empty_state(&telemetry));
         });
     }
@@ -669,12 +669,12 @@ mod tests {
                 serde_json::Value::String("test_value".to_string()),
             )]);
 
-            let event = FlexibleEvent {
+            let event = Event {
                 event_type: "test".to_string(),
                 event_properties,
             };
 
-            telemetry.report_event(Event::Flexible(event));
+            telemetry.report_event(event);
             assert_eq!(telemetry.state.lock().events_queue.len(), 1);
             assert!(telemetry.state.lock().flush_events_task.is_some());
             assert_eq!(

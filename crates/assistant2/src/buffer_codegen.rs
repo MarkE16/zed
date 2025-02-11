@@ -29,7 +29,7 @@ use std::{
     time::Instant,
 };
 use streaming_diff::{CharOperation, LineDiff, LineOperation, StreamingDiff};
-use telemetry_events::{AssistantEvent, AssistantKind, AssistantPhase};
+use telemetry_events::{AssistantEventData, AssistantKind, AssistantPhase};
 
 pub struct BufferCodegen {
     alternatives: Vec<Entity<CodegenAlternative>>,
@@ -595,7 +595,7 @@ impl CodegenAlternative {
                             let error_message =
                                 result.as_ref().err().map(|error| error.to_string());
                             report_assistant_event(
-                                AssistantEvent {
+                                AssistantEventData {
                                     conversation_id: None,
                                     message_id,
                                     kind: AssistantKind::Inline,

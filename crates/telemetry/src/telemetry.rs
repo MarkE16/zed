@@ -2,7 +2,7 @@
 use futures::channel::mpsc;
 pub use serde_json;
 use std::sync::OnceLock;
-pub use telemetry_events::FlexibleEvent as Event;
+pub use telemetry_events::Event;
 
 /// Macro to create telemetry events and send them to the telemetry queue.
 ///

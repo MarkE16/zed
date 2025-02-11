@@ -5,7 +5,7 @@ use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Task};
 use language_model::{LanguageModelRegistry, LanguageModelRequest};
 use language_models::report_assistant_event;
 use std::{sync::Arc, time::Instant};
-use telemetry_events::{AssistantEvent, AssistantKind, AssistantPhase};
+use telemetry_events::{AssistantEventData, AssistantKind, AssistantPhase};
 use terminal::Terminal;
 
 pub struct TerminalCodegen {
@@ -76,7 +76,7 @@ impl TerminalCodegen {
 
                         let error_message = result.as_ref().err().map(|error| error.to_string());
                         report_assistant_event(
-                            AssistantEvent {
+                            AssistantEventData {
                                 conversation_id: None,
                                 kind: AssistantKind::InlineTerminal,
                                 message_id,
