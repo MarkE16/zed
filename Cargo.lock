@@ -13279,6 +13279,7 @@ dependencies = [
  "futures 0.3.31",
  "gpui",
  "hex",
+ "log",
  "parking_lot",
  "schemars",
  "serde",

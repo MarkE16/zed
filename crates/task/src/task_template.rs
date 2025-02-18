@@ -122,9 +122,11 @@ impl TaskTemplate {
     /// Every [`ResolvedTask`] gets a [`TaskId`], based on the `id_base` (to avoid collision with various task sources),
     /// and hashes of its template and [`TaskContext`], see [`ResolvedTask`] fields' documentation for more details.
     pub fn resolve_task(&self, id_base: &str, cx: &TaskContext) -> Option<ResolvedTask> {
+        log::debug!("resolve_task");
         if self.label.trim().is_empty() || self.command.trim().is_empty() {
             return None;
         }
+        log::debug!("2");
 
         let mut variable_names = HashMap::default();
         let mut substituted_variables = HashSet::default();
@@ -154,12 +156,14 @@ impl TaskTemplate {
             None => None,
         }
         .or(cx.cwd.clone());
+        log::debug!("3");
         let full_label = substitute_all_template_variables_in_str(
             &self.label,
             &task_variables,
             &variable_names,
             &mut substituted_variables,
         )?;
+        log::debug!("4");
 
         // Arbitrarily picked threshold below which we don't truncate any variables.
         const TRUNCATION_THRESHOLD: usize = 64;
@@ -184,6 +188,7 @@ impl TaskTemplate {
             }
             string
         });
+        log::debug!("5");
 
         let command = substitute_all_template_variables_in_str(
             &self.command,
@@ -191,12 +196,14 @@ impl TaskTemplate {
             &variable_names,
             &mut substituted_variables,
         )?;
+        log::debug!("command: {}", command);
         let args_with_substitutions = substitute_all_template_variables_in_vec(
             &self.args,
             &task_variables,
             &variable_names,
             &mut substituted_variables,
         )?;
+        log::debug!("args: {:?}", args_with_substitutions);
 
         let task_hash = to_hex_hash(self)
             .context("hashing task template")
@@ -303,6 +310,7 @@ fn substitute_all_template_variables_in_str<A: AsRef<str>>(
             }
             return Ok(Some(name));
         } else if variable_name.starts_with(ZED_VARIABLE_NAME_PREFIX) {
+            log::debug!("variable_name: {}", variable_name);
             bail!("Unknown variable name: {variable_name}");
         }
         // This is an unknown variable.
