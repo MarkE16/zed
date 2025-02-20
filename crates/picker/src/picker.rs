@@ -51,9 +51,9 @@ pub struct Picker<D: PickerDelegate> {
     max_height: Option<Length>,
     focus_handle: FocusHandle,
     /// An external control to display a scrollbar in the `Picker`.
-    show_scrollbar: bool,
+    scrollbar: bool,
     /// An internal state that controls whether to show the scrollbar based on the user's focus.
-    scrollbar_visibility: bool,
+    show_scrollbar: bool,
     scrollbar_state: ScrollbarState,
     hide_scrollbar_task: Option<Task<()>>,
     /// Whether the `Picker` is rendered as a self-contained modal.
@@ -285,8 +285,8 @@ impl<D: PickerDelegate> Picker<D> {
             width: None,
             max_height: Some(rems(18.).into()),
             focus_handle,
+            scrollbar: false,
             show_scrollbar: false,
-            scrollbar_visibility: true,
             scrollbar_state,
             is_modal: true,
             hide_scrollbar_task: None,
@@ -337,8 +337,8 @@ impl<D: PickerDelegate> Picker<D> {
         self
     }
 
-    pub fn show_scrollbar(mut self, show_scrollbar: bool) -> Self {
-        self.show_scrollbar = show_scrollbar;
+    pub fn scrollbar(mut self, scrollbar: bool) -> Self {
+        self.scrollbar = scrollbar;
         self
     }
 
@@ -715,7 +715,7 @@ impl<D: PickerDelegate> Picker<D> {
                 .await;
             panel
                 .update(&mut cx, |panel, cx| {
-                    panel.scrollbar_visibility = false;
+                    panel.show_scrollbar = false;
                     cx.notify();
                 })
                 .log_err();
@@ -723,9 +723,7 @@ impl<D: PickerDelegate> Picker<D> {
     }
 
     fn render_scrollbar(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        if !self.show_scrollbar
-            || !(self.scrollbar_visibility || self.scrollbar_state.is_dragging())
-        {
+        if !self.scrollbar || !(self.show_scrollbar || self.scrollbar_state.is_dragging()) {
             return None;
         }
         Some(
@@ -811,12 +809,12 @@ impl<D: PickerDelegate> Render for Picker<D> {
                         .relative()
                         .flex_grow()
                         .when_some(self.max_height, |div, max_h| div.max_h(max_h))
-                        .overflow_hidden()
+                        .overflow_y_scroll()
                         .children(self.delegate.render_header(window, cx))
                         .child(self.render_element_container(cx))
                         .on_hover(cx.listener(|this, hovered, window, cx| {
                             if *hovered {
-                                this.scrollbar_visibility = true;
+                                this.show_scrollbar = true;
                                 this.hide_scrollbar_task.take();
                                 cx.notify();
                             } else if !this.focus_handle.contains_focused(window, cx) {

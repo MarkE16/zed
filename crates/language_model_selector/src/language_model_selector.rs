@@ -45,7 +45,7 @@ impl LanguageModelSelector {
 
         let picker = cx.new(|cx| {
             Picker::uniform_list(delegate, window, cx)
-                .show_scrollbar(true)
+                .scrollbar(true)
                 .width(rems(20.))
                 .max_height(Some(rems(20.).into()))
         });
