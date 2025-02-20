@@ -1625,9 +1625,6 @@ impl EditorElement {
         cx: &mut App,
     ) -> HashMap<DisplayRow, AnyElement> {
         let diagnostics = self.editor.update(cx, |editor, _| {
-            if !editor.show_inline_diagnostics() {
-                return Default::default();
-            }
             editor
                 .inline_diagnostics
                 .range(start_row..=end_row)
@@ -1647,16 +1644,12 @@ impl EditorElement {
             _ => Color::Error,
         };
 
-        let padding = ProjectSettings::get_global(cx)
-            .diagnostics
-            .inline()
-            .padding() as f32
-            * em_width;
+        let padding = ProjectSettings::get_global(cx).diagnostics.inline.padding as f32 * em_width;
 
         let min_x = ProjectSettings::get_global(cx)
             .diagnostics
-            .inline()
-            .min_column() as f32
+            .inline
+            .min_column as f32
             * em_width;
 
         let mut elements = HashMap::default();
@@ -1686,7 +1679,7 @@ impl EditorElement {
             };
 
             let mut element = h_flex()
-                .id(SharedString::from(format!("diagnostic-{}", row.0)))
+                .id(("diagnostic", row.0))
                 .h(line_height)
                 .w_full()
                 .px_1()
