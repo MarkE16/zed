@@ -152,9 +152,10 @@ impl ScrollbarState {
         // Scroll handle might briefly report an offset greater than the length of a list;
         // in such case we'll adjust the starting offset as well to keep the scrollbar thumb length stable.
         let overshoot = (end_offset - 1.).clamp(0., 1.);
-        if overshoot > 0. {
-            percentage -= overshoot;
-        }
+        dbg!("before", &percentage, &overshoot);
+        // if overshoot > 0. {
+        //     percentage -= overshoot;
+        // }
         if percentage + MINIMUM_SCROLLBAR_PERCENTAGE_SIZE > 1.0 || end_offset > main_dimension_size
         {
             return None;
@@ -163,6 +164,10 @@ impl ScrollbarState {
             return None;
         }
         let end_offset = end_offset.clamp(percentage + MINIMUM_SCROLLBAR_PERCENTAGE_SIZE, 1.);
+        dbg!("after", percentage, end_offset);
+        if percentage == 0. && end_offset == 1. {
+            return None;
+        }
         Some(percentage..end_offset)
     }
 }
