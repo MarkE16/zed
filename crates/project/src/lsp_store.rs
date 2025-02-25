@@ -1924,14 +1924,17 @@ impl LocalLspStore {
                 self.buffer_snapshots
                     .entry(buffer_id)
                     .or_default()
-                    .insert(server.server_id(), vec![snapshot]);
+                    .entry(server.server_id())
+                    .or_insert_with(|| {
+                        server.register_buffer(
+                            uri.clone(),
+                            adapter.language_id(&language.name()),
+                            0,
+                            initial_snapshot.text(),
+                        );
 
-                server.register_buffer(
-                    uri.clone(),
-                    adapter.language_id(&language.name()),
-                    0,
-                    initial_snapshot.text(),
-                );
+                        vec![snapshot]
+                    });
             }
         }
     }
