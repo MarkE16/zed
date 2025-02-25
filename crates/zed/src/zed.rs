@@ -427,10 +427,12 @@ fn initialize_panels(
             workspace.add_panel(channels_panel, window, cx);
             workspace.add_panel(chat_panel, window, cx);
             workspace.add_panel(notification_panel, window, cx);
-            cx.when_flag_enabled::<GitUiFeatureFlag>(window, |workspace, window, cx| {
-                let git_panel = git_ui::git_panel::GitPanel::new(workspace, window, cx);
-                workspace.add_panel(git_panel, window, cx);
-            });
+            // cx.when_flag_enabled::<GitUiFeatureFlag>(window, |workspace, window, cx| {
+            //     let git_panel = git_ui::git_panel::GitPanel::new(workspace, window, cx);
+            //     workspace.add_panel(git_panel, window, cx);
+            // });
+            let git_panel = git_ui::git_panel::GitPanel::new(workspace, window, cx);
+            workspace.add_panel(git_panel, window, cx);
         })?;
 
         let is_assistant2_enabled = if cfg!(test) {

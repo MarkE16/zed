@@ -687,7 +687,7 @@ ui_input = { codegen-units = 1 }
 zed_actions = { codegen-units = 1 }
 
 [profile.release]
-debug = "limited"
+debug = false
 lto = "thin"
 codegen-units = 1
 
