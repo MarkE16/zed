@@ -458,6 +458,9 @@ messages!(
     (GitChangeBranch, Background),
     (CheckForPushedCommits, Background),
     (CheckForPushedCommitsResponse, Background),
+    (GitDiff, Background),
+    (GitDiffResponse, Background),
+    (GitInit, Background),
 );
 
 request_messages!(
@@ -604,6 +607,8 @@ request_messages!(
     (GitCreateBranch, Ack),
     (GitChangeBranch, Ack),
     (CheckForPushedCommits, CheckForPushedCommitsResponse),
+    (GitDiff, GitDiffResponse),
+    (GitInit, Ack),
 );
 
 entity_messages!(
@@ -709,6 +714,8 @@ entity_messages!(
     GitChangeBranch,
     GitCreateBranch,
     CheckForPushedCommits,
+    GitDiff,
+    GitInit,
 );
 
 entity_messages!(

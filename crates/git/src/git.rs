@@ -49,11 +49,15 @@ actions!(
         Pull,
         Fetch,
         Commit,
-        ExpandCommitEditor
+        ExpandCommitEditor,
+        GenerateCommitMessage,
+        Init,
     ]
 );
+
 action_with_deprecated_aliases!(git, RestoreFile, ["editor::RevertFile"]);
 action_with_deprecated_aliases!(git, Restore, ["editor::RevertSelectedHunks"]);
+action_with_deprecated_aliases!(git, Blame, ["editor::ToggleGitBlame"]);
 
 /// The length of a Git short SHA.
 pub const SHORT_SHA_LENGTH: usize = 7;

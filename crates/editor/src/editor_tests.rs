@@ -16,7 +16,8 @@ use gpui::{
 use indoc::indoc;
 use language::{
     language_settings::{
-        AllLanguageSettings, AllLanguageSettingsContent, LanguageSettingsContent, PrettierSettings,
+        AllLanguageSettings, AllLanguageSettingsContent, CompletionSettings,
+        LanguageSettingsContent, PrettierSettings,
     },
     BracketPairConfig,
     Capability::ReadWrite,
@@ -30,7 +31,7 @@ use pretty_assertions::{assert_eq, assert_ne};
 use project::project_settings::{LspSettings, ProjectSettings};
 use project::FakeFs;
 use serde_json::{self, json};
-use std::{cell::RefCell, future::Future, rc::Rc, time::Instant};
+use std::{cell::RefCell, future::Future, rc::Rc, sync::atomic::AtomicBool, time::Instant};
 use std::{
     iter,
     sync::atomic::{self, AtomicUsize},
@@ -4738,6 +4739,31 @@ async fn test_rewrap(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_hard_wrap(cx: &mut TestAppContext) {
+    init_test(cx, |_| {});
+    let mut cx = EditorTestContext::new(cx).await;
+
+    cx.update_editor(|editor, _, cx| {
+        editor.set_hard_wrap(Some(14), cx);
+    });
+
+    cx.set_state(indoc!(
+        "
+        one two three ˇ
+        "
+    ));
+    cx.simulate_input("four");
+    cx.run_until_parked();
+
+    cx.assert_editor_state(indoc!(
+        "
+        one two three
+        fourˇ
+        "
+    ));
+}
+
+#[gpui::test]
 async fn test_clipboard(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
@@ -4931,6 +4957,34 @@ async fn test_paste_multiline(cx: &mut TestAppContext) {
             )
         );
     "});
+
+    // Copy an indented block, starting mid-line
+    cx.set_state(indoc! {"
+        const a: B = (
+            c(),
+            somethin«g(
+                e,
+                f
+            )ˇ»
+        );
+    "});
+    cx.update_editor(|e, window, cx| e.copy(&Copy, window, cx));
+
+    // Paste it on a line with a lower indent level
+    cx.update_editor(|e, window, cx| e.move_to_end(&Default::default(), window, cx));
+    cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
+    cx.assert_editor_state(indoc! {"
+        const a: B = (
+            c(),
+            something(
+                e,
+                f
+            )
+        );
+        g(
+            e,
+            f
+        )ˇ"});
 }
 
 #[gpui::test]
@@ -9142,6 +9196,101 @@ async fn test_completion(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_words_completion(cx: &mut TestAppContext) {
+    let lsp_fetch_timeout_ms = 10;
+    init_test(cx, |language_settings| {
+        language_settings.defaults.completions = Some(CompletionSettings {
+            words: WordsCompletionMode::Fallback,
+            lsp: true,
+            lsp_fetch_timeout_ms: 10,
+        });
+    });
+
+    let mut cx = EditorLspTestContext::new_rust(
+        lsp::ServerCapabilities {
+            completion_provider: Some(lsp::CompletionOptions {
+                trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
+                ..lsp::CompletionOptions::default()
+            }),
+            signature_help_provider: Some(lsp::SignatureHelpOptions::default()),
+            ..lsp::ServerCapabilities::default()
+        },
+        cx,
+    )
+    .await;
+
+    let throttle_completions = Arc::new(AtomicBool::new(false));
+
+    let lsp_throttle_completions = throttle_completions.clone();
+    let _completion_requests_handler =
+        cx.lsp
+            .server
+            .on_request::<lsp::request::Completion, _, _>(move |_, cx| {
+                let lsp_throttle_completions = lsp_throttle_completions.clone();
+                async move {
+                    if lsp_throttle_completions.load(atomic::Ordering::Acquire) {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(lsp_fetch_timeout_ms * 10))
+                            .await;
+                    }
+                    Ok(Some(lsp::CompletionResponse::Array(vec![
+                        lsp::CompletionItem {
+                            label: "first".into(),
+                            ..Default::default()
+                        },
+                        lsp::CompletionItem {
+                            label: "last".into(),
+                            ..Default::default()
+                        },
+                    ])))
+                }
+            });
+
+    cx.set_state(indoc! {"
+        oneˇ
+        two
+        three
+    "});
+    cx.simulate_keystroke(".");
+    cx.executor().run_until_parked();
+    cx.condition(|editor, _| editor.context_menu_visible())
+        .await;
+    cx.update_editor(|editor, window, cx| {
+        if let Some(CodeContextMenu::Completions(menu)) = editor.context_menu.borrow_mut().as_ref()
+        {
+            assert_eq!(
+                completion_menu_entries(&menu),
+                &["first", "last"],
+                "When LSP server is fast to reply, no fallback word completions are used"
+            );
+        } else {
+            panic!("expected completion menu to be open");
+        }
+        editor.cancel(&Cancel, window, cx);
+    });
+    cx.executor().run_until_parked();
+    cx.condition(|editor, _| !editor.context_menu_visible())
+        .await;
+
+    throttle_completions.store(true, atomic::Ordering::Release);
+    cx.simulate_keystroke(".");
+    cx.executor()
+        .advance_clock(Duration::from_millis(lsp_fetch_timeout_ms * 2));
+    cx.executor().run_until_parked();
+    cx.condition(|editor, _| editor.context_menu_visible())
+        .await;
+    cx.update_editor(|editor, _, _| {
+        if let Some(CodeContextMenu::Completions(menu)) = editor.context_menu.borrow_mut().as_ref()
+        {
+            assert_eq!(completion_menu_entries(&menu), &["one", "three", "two"],
+                "When LSP server is slow, document words can be shown instead, if configured accordingly");
+        } else {
+            panic!("expected completion menu to be open");
+        }
+    });
+}
+
+#[gpui::test]
 async fn test_multiline_completion(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
@@ -12306,24 +12455,6 @@ async fn test_completions_default_resolve_data_handling(cx: &mut TestAppContext)
         },
     };
 
-    let item_0_out = lsp::CompletionItem {
-        commit_characters: Some(default_commit_characters.clone()),
-        insert_text_format: Some(default_insert_text_format),
-        ..item_0
-    };
-    let items_out = iter::once(item_0_out)
-        .chain(items[1..].iter().map(|item| lsp::CompletionItem {
-            commit_characters: Some(default_commit_characters.clone()),
-            data: Some(default_data.clone()),
-            insert_text_mode: Some(default_insert_text_mode),
-            text_edit: Some(lsp::CompletionTextEdit::Edit(lsp::TextEdit {
-                range: default_edit_range,
-                new_text: item.label.clone(),
-            })),
-            ..item.clone()
-        }))
-        .collect::<Vec<lsp::CompletionItem>>();
-
     let mut cx = EditorLspTestContext::new_rust(
         lsp::ServerCapabilities {
             completion_provider: Some(lsp::CompletionOptions {
@@ -12342,10 +12473,11 @@ async fn test_completions_default_resolve_data_handling(cx: &mut TestAppContext)
 
     let completion_data = default_data.clone();
     let completion_characters = default_commit_characters.clone();
+    let completion_items = items.clone();
     cx.handle_request::<lsp::request::Completion, _, _>(move |_, _, _| {
         let default_data = completion_data.clone();
         let default_commit_characters = completion_characters.clone();
-        let items = items.clone();
+        let items = completion_items.clone();
         async move {
             Ok(Some(lsp::CompletionResponse::List(lsp::CompletionList {
                 items,
@@ -12394,7 +12526,7 @@ async fn test_completions_default_resolve_data_handling(cx: &mut TestAppContext)
                         .iter()
                         .map(|mat| mat.string.clone())
                         .collect::<Vec<String>>(),
-                    items_out
+                    items
                         .iter()
                         .map(|completion| completion.label.clone())
                         .collect::<Vec<String>>()
@@ -12407,14 +12539,18 @@ async fn test_completions_default_resolve_data_handling(cx: &mut TestAppContext)
     // with 4 from the end.
     assert_eq!(
         *resolved_items.lock(),
-        [
-            &items_out[0..16],
-            &items_out[items_out.len() - 4..items_out.len()]
-        ]
-        .concat()
-        .iter()
-        .cloned()
-        .collect::<Vec<lsp::CompletionItem>>()
+        [&items[0..16], &items[items.len() - 4..items.len()]]
+            .concat()
+            .iter()
+            .cloned()
+            .map(|mut item| {
+                if item.data.is_none() {
+                    item.data = Some(default_data.clone());
+                }
+                item
+            })
+            .collect::<Vec<lsp::CompletionItem>>(),
+        "Items sent for resolve should be unchanged modulo resolve `data` filled with default if missing"
     );
     resolved_items.lock().clear();
 
@@ -12425,9 +12561,15 @@ async fn test_completions_default_resolve_data_handling(cx: &mut TestAppContext)
     // Completions that have already been resolved are skipped.
     assert_eq!(
         *resolved_items.lock(),
-        items_out[items_out.len() - 16..items_out.len() - 4]
+        items[items.len() - 16..items.len() - 4]
             .iter()
             .cloned()
+            .map(|mut item| {
+                if item.data.is_none() {
+                    item.data = Some(default_data.clone());
+                }
+                item
+            })
             .collect::<Vec<lsp::CompletionItem>>()
     );
     resolved_items.lock().clear();
@@ -16383,6 +16525,199 @@ async fn test_folding_buffer_when_multibuffer_has_only_one_excerpt(cx: &mut Test
         multi_buffer_editor.update(cx, |editor, cx| editor.display_text(cx)),
         full_text,
     );
+}
+
+#[gpui::test]
+async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContext) {
+    init_test(cx, |_| {});
+    cx.update(|cx| {
+        let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+            "keymaps/default-linux.json",
+            cx,
+        )
+        .unwrap();
+        cx.bind_keys(default_key_bindings);
+    });
+
+    let (editor, cx) = cx.add_window_view(|window, cx| {
+        let multi_buffer = MultiBuffer::build_multi(
+            [
+                ("a0\nb0\nc0\nd0\ne0\n", vec![Point::row_range(0..2)]),
+                ("a1\nb1\nc1\nd1\ne1\n", vec![Point::row_range(0..2)]),
+                ("a2\nb2\nc2\nd2\ne2\n", vec![Point::row_range(0..2)]),
+                ("a3\nb3\nc3\nd3\ne3\n", vec![Point::row_range(0..2)]),
+            ],
+            cx,
+        );
+        let mut editor = Editor::new(
+            EditorMode::Full,
+            multi_buffer.clone(),
+            None,
+            true,
+            window,
+            cx,
+        );
+
+        let buffer_ids = multi_buffer.read(cx).excerpt_buffer_ids();
+        // fold all but the second buffer, so that we test navigating between two
+        // adjacent folded buffers, as well as folded buffers at the start and
+        // end the multibuffer
+        editor.fold_buffer(buffer_ids[0], cx);
+        editor.fold_buffer(buffer_ids[2], cx);
+        editor.fold_buffer(buffer_ids[3], cx);
+
+        editor
+    });
+    cx.simulate_resize(size(px(1000.), px(1000.)));
+
+    let mut cx = EditorTestContext::for_editor_in(editor.clone(), cx).await;
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        ˇ[FOLDED]
+        [EXCERPT]
+        a1
+        b1
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("down");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        ˇa1
+        b1
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("down");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        a1
+        ˇb1
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("down");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        a1
+        b1
+        ˇ[EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("down");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        a1
+        b1
+        [EXCERPT]
+        ˇ[FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    for _ in 0..5 {
+        cx.simulate_keystroke("down");
+        cx.assert_excerpts_with_selections(indoc! {"
+            [EXCERPT]
+            [FOLDED]
+            [EXCERPT]
+            a1
+            b1
+            [EXCERPT]
+            [FOLDED]
+            [EXCERPT]
+            ˇ[FOLDED]
+            "
+        });
+    }
+
+    cx.simulate_keystroke("up");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        a1
+        b1
+        [EXCERPT]
+        ˇ[FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("up");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        a1
+        b1
+        ˇ[EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("up");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        a1
+        ˇb1
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    cx.simulate_keystroke("up");
+    cx.assert_excerpts_with_selections(indoc! {"
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        ˇa1
+        b1
+        [EXCERPT]
+        [FOLDED]
+        [EXCERPT]
+        [FOLDED]
+        "
+    });
+    for _ in 0..5 {
+        cx.simulate_keystroke("up");
+        cx.assert_excerpts_with_selections(indoc! {"
+            [EXCERPT]
+            ˇ[FOLDED]
+            [EXCERPT]
+            a1
+            b1
+            [EXCERPT]
+            [FOLDED]
+            [EXCERPT]
+            [FOLDED]
+            "
+        });
+    }
 }
 
 #[gpui::test]
